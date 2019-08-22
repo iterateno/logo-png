@@ -18,7 +18,7 @@ RUN cargo build --release
 
 # Backend build
 
-COPY src .
+COPY src src
 # Force rebuild
 RUN touch src/main.rs
 RUN cargo build --release
