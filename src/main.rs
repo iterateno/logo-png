@@ -24,7 +24,7 @@ fn main() {
 
     let routes = index.or(logo).or(health);
 
-    warp::serve(routes).run(([127, 0, 0, 1], 3000));
+    warp::serve(routes).run(([0, 0, 0, 0], 3000));
 }
 
 #[derive(Debug, Deserialize, Copy, Clone)]
