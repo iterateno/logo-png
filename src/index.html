@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+
+        <title>Logo PNG</title>
+
+        <style>
+            html, body {
+                height: 100%;
+            }
+
+            div {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100%:
+            }
+
+            img {
+                width: 500px;
+                height: 500px;
+                image-rendering: pixelated;
+                object-fit: contain;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div><img id="logo" src="/logo.png" /></div>
+
+        <script>
+            let socket;
+
+            let onMessage = event => {
+                let image = document.getElementById("logo");
+                image.src = URL.createObjectURL(event.data);
+            };
+
+            const onClose = event => {
+                console.log("Disconnected, will reconnect", event);
+                setTimeout(connect, 1000);
+            };
+
+            const connect = () => {
+                if (socket) {
+                    socket.close();
+                    socket.removeEventListener("message", onMessage);
+                    socket.removeEventListener("close", onClose);
+                    socket = undefined;
+                }
+
+                socket = new WebSocket(`ws://${window.location.host}/live/`);
+
+                socket.addEventListener("message", onMessage);
+                socket.addEventListener("close", onClose);
+            };
+
+            connect();
+        </script>
+    </body>
+</html>

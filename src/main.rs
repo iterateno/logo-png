@@ -1,33 +1,144 @@
 use std::error::Error;
-use std::time::{Duration, Instant};
+use std::mem;
+use std::thread;
 
 use futures::future::poll_fn;
+use futures::sync::mpsc;
+use futures::{Future, Stream};
+use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use png::{self};
 use reqwest;
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio_threadpool::blocking;
 use warp::{
     self,
     http::{self, Response},
-    path, Filter,
+    path,
+    ws::{Message, WebSocket},
+    Filter,
 };
+
+type Listeners = RwLock<HashMap<usize, mpsc::UnboundedSender<Message>>>;
+
+lazy_static! {
+    static ref LOGO_CACHE: RwLock<LogoResponse> = RwLock::new(LogoResponse { logo: vec![] });
+    static ref LISTENERS: Listeners = RwLock::new(HashMap::new());
+}
+
+static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
+
+fn update_logo() -> Result<(), Box<dyn Error>> {
+    let live_logo: LogoResponse = reqwest::get("https://logo-api.g2.iterate.no/logo")?.json()?;
+    let old_logo = LOGO_CACHE.read();
+
+    if live_logo != *old_logo {
+        // Avoid deadlock
+        drop(old_logo);
+
+        let mut logo_cache = LOGO_CACHE.write();
+        mem::replace(&mut *logo_cache, live_logo);
+
+        // Avoid deadlock
+        drop(logo_cache);
+
+        let logo_png = get_logo_png(LogoOptions::default()).expect("Could not get logo data");
+
+        for tx in LISTENERS.read().values() {
+            if let Err(err) = tx.unbounded_send(Message::binary(logo_png.clone())) {
+                eprintln!("Error sending: {:?}", err);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+struct LogoResponse {
+    logo: Vec<Vec<Vec<String>>>,
+}
 
 fn main() {
     let logo_options = warp::query::<LogoOptions>();
+
+    thread::spawn(|| loop {
+        if let Err(err) = update_logo() {
+            println!("Error updating logo: {}", err);
+        }
+        thread::sleep_ms(2000);
+    });
 
     // GET /hello/warp => 200 OK with body "Hello, warp!"
     let logo = path!("logo.png").and(logo_options).and_then(|options| {
         poll_fn(move || blocking(|| logo(options)).map_err(|err| warp::reject::custom(err)))
     });
-    let index = path::end().map(|| "Logo PNG");
+    let index = path::end().and(warp::fs::file("src/index.html"));
     let health = path!("health").map(|| "OK");
 
-    let routes = index.or(logo).or(health);
+    let live = warp::path("live")
+        // The `ws2()` filter will prepare Websocket handshake...
+        .and(warp::ws2())
+        .map(|ws: warp::ws::Ws2| {
+            // This will call our function if the handshake succeeds.
+            ws.on_upgrade(move |socket| listener_connected(socket))
+        });
+
+    let routes = index.or(logo).or(health).or(live);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3000));
 }
 
-#[derive(Debug, Deserialize, Copy, Clone)]
+fn listener_connected(ws: WebSocket) -> impl Future<Item = (), Error = ()> {
+    // Use a counter to assign a new unique ID for this user.
+    let my_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
+
+    eprintln!("new listener: {}", my_id);
+
+    // Split the socket into a sender and receive of messages.
+    let (listener_ws_tx, listener_ws_rx) = ws.split();
+
+    // Use an unbounded channel to handle buffering and flushing of messages
+    // to the websocket...
+    let (tx, rx) = mpsc::unbounded();
+    warp::spawn(
+        rx.map_err(|()| -> warp::Error { unreachable!("unbounded rx never errors") })
+            .forward(listener_ws_tx)
+            .map(|_tx_rx| ())
+            .map_err(|ws_err| eprintln!("websocket send error: {}", ws_err)),
+    );
+
+    // Save the sender in our list of connected users.
+    LISTENERS.write().insert(my_id, tx);
+
+    // Return a `Future` that is basically a state machine managing
+    // this specific user's connection.
+
+    listener_ws_rx
+        // Every time the user sends a message, broadcast it to
+        // all other users...
+        .for_each(move |msg| {
+            println!("Got message from listener: {:?}", msg);
+            Ok(())
+        })
+        // for_each will keep processing as long as the user stays
+        // connected. Once they disconnect, then...
+        .then(move |result| {
+            eprintln!("good bye listener: {}", my_id);
+
+            // Stream closed up, so remove from the user list
+            LISTENERS.write().remove(&my_id);
+            result
+        })
+        // If at any time, there was a websocket error, log here...
+        .map_err(move |e| {
+            eprintln!("websocket error(uid={}): {}", my_id, e);
+        })
+}
+
+#[derive(Debug, Deserialize, Copy, Clone, Default)]
 struct LogoOptions {
     size: Option<u32>,
 }
@@ -39,8 +150,13 @@ struct Logo {
 }
 
 fn logo(options: LogoOptions) -> Result<Response<Vec<u8>>, http::Error> {
+    let logo_png = get_logo_png(options).expect("Could not get logo data");
+    Response::builder().body(logo_png)
+}
+
+fn get_logo_png(options: LogoOptions) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut result = Vec::new();
-    let logo = get_logo_data(options).expect("Could not get logo data"); // An array containing a RGBA sequence. First pixel is red and second pixel is black.
+    let logo = get_logo_data(options)?; // An array containing a RGBA sequence. First pixel is red and second pixel is black.
 
     {
         let mut encoder = png::Encoder::new(&mut result, logo.width as u32, logo.height as u32); // Width is 2 pixels and height is 1.
@@ -51,12 +167,7 @@ fn logo(options: LogoOptions) -> Result<Response<Vec<u8>>, http::Error> {
         writer.write_image_data(&logo.data).unwrap(); // Save
     }
 
-    Response::builder().body(result)
-}
-
-#[derive(Debug, Deserialize)]
-struct LogoResponse {
-    logo: Vec<Vec<Vec<String>>>,
+    Ok(result)
 }
 
 fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
@@ -117,13 +228,11 @@ fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
 
     let mut image = vec![0; width * height * 4];
 
-    let live_logo: LogoResponse = reqwest::get("https://logo-api.g2.iterate.no/logo")?.json()?;
+    let live_logo = LOGO_CACHE.read();
 
-    let now = Instant::now();
-
-    for (char_index, chr) in live_logo.logo.into_iter().enumerate() {
-        for (panel_index, panel) in chr.into_iter().enumerate() {
-            for (pixel_index, pixel) in panel.into_iter().enumerate() {
+    for (char_index, chr) in live_logo.logo.iter().enumerate() {
+        for (panel_index, panel) in chr.iter().enumerate() {
+            for (pixel_index, pixel) in panel.iter().enumerate() {
                 let panel_x = pixel_index % 8;
                 let panel_y = pixel_index / 8;
                 let x = coords[char_index][panel_index][0] + panel_x;
@@ -149,12 +258,6 @@ fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
             }
         }
     }
-
-    let elapsed = now.elapsed();
-    println!(
-        "{}",
-        elapsed.subsec_millis() as u64 + elapsed.as_secs() * 1000
-    );
 
     Ok(Logo {
         width,
