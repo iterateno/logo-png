@@ -1,0 +1,16 @@
+[package]
+name = "logo-png"
+version = "0.1.0"
+authors = ["Sindre Ilebekk Johansen <sindre@iterate.no>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+warp = "0.1.19"
+png = "0.15.0"
+reqwest = "0.9.20"
+serde = {version="1.0.99", features=["derive"]}
+futures-cpupool = "0.1.8"
+tokio-threadpool = "0.1.15"
+futures = "0.1.28"
