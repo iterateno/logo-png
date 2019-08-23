@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::mem;
 use std::thread;
+use std::time::Duration;
 
 use futures::future::poll_fn;
 use futures::sync::mpsc;
@@ -24,11 +25,49 @@ use warp::{
 type Listeners = RwLock<HashMap<usize, mpsc::UnboundedSender<Message>>>;
 
 lazy_static! {
+    // Last logo fetched from the api
     static ref LOGO_CACHE: RwLock<LogoResponse> = RwLock::new(LogoResponse { logo: vec![] });
+    // Channels for each of the websocket listeners
     static ref LISTENERS: Listeners = RwLock::new(HashMap::new());
 }
 
-static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
+// Next id for use by a websocket listener
+static NEXT_LISTENER_ID: AtomicUsize = AtomicUsize::new(1);
+
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+struct LogoResponse {
+    logo: Vec<Vec<Vec<String>>>,
+}
+
+fn main() {
+    let logo_options = warp::query::<LogoOptions>();
+
+    thread::spawn(|| loop {
+        if let Err(err) = update_logo() {
+            println!("Error updating logo: {}", err);
+        }
+        thread::sleep(Duration::from_secs(1));
+    });
+
+    // GET /hello/warp => 200 OK with body "Hello, warp!"
+    let logo = path!("logo.png").and(logo_options).and_then(|options| {
+        poll_fn(move || blocking(|| logo(options)).map_err(|err| warp::reject::custom(err)))
+    });
+    let index = path::end().and(warp::fs::file("src/index.html"));
+    let health = path!("health").map(|| "OK");
+
+    let live = warp::path("live")
+        // The `ws2()` filter will prepare Websocket handshake...
+        .and(warp::ws2())
+        .map(|ws: warp::ws::Ws2| {
+            // This will call our function if the handshake succeeds.
+            ws.on_upgrade(move |socket| listener_connected(socket))
+        });
+
+    let routes = index.or(logo).or(health).or(live);
+
+    warp::serve(routes).run(([0, 0, 0, 0], 3000));
+}
 
 fn update_logo() -> Result<(), Box<dyn Error>> {
     let live_logo: LogoResponse = reqwest::get("https://logo-api.g2.iterate.no/logo")?.json()?;
@@ -56,44 +95,9 @@ fn update_logo() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq)]
-struct LogoResponse {
-    logo: Vec<Vec<Vec<String>>>,
-}
-
-fn main() {
-    let logo_options = warp::query::<LogoOptions>();
-
-    thread::spawn(|| loop {
-        if let Err(err) = update_logo() {
-            println!("Error updating logo: {}", err);
-        }
-        thread::sleep_ms(2000);
-    });
-
-    // GET /hello/warp => 200 OK with body "Hello, warp!"
-    let logo = path!("logo.png").and(logo_options).and_then(|options| {
-        poll_fn(move || blocking(|| logo(options)).map_err(|err| warp::reject::custom(err)))
-    });
-    let index = path::end().and(warp::fs::file("src/index.html"));
-    let health = path!("health").map(|| "OK");
-
-    let live = warp::path("live")
-        // The `ws2()` filter will prepare Websocket handshake...
-        .and(warp::ws2())
-        .map(|ws: warp::ws::Ws2| {
-            // This will call our function if the handshake succeeds.
-            ws.on_upgrade(move |socket| listener_connected(socket))
-        });
-
-    let routes = index.or(logo).or(health).or(live);
-
-    warp::serve(routes).run(([0, 0, 0, 0], 3000));
-}
-
 fn listener_connected(ws: WebSocket) -> impl Future<Item = (), Error = ()> {
     // Use a counter to assign a new unique ID for this user.
-    let my_id = NEXT_USER_ID.fetch_add(1, Ordering::Relaxed);
+    let my_id = NEXT_LISTENER_ID.fetch_add(1, Ordering::Relaxed);
 
     eprintln!("new listener: {}", my_id);
 

@@ -34,7 +34,9 @@ RUN wget -O /usr/local/bin/dumb-init https://github.com/Yelp/dumb-init/releases/
 RUN chmod +x /usr/local/bin/dumb-init
 
 WORKDIR /app
+RUN mkdir /app/src
 COPY --from=build_backend /build/target/release/logo-png .
+COPY --from=build_backend /build/src/index.html src/
 
 EXPOSE 3000
 
