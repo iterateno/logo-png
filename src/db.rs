@@ -1,7 +1,25 @@
 use std::env;
 
+use base64;
+use chrono::{DateTime, Utc};
 use postgres::{Connection, TlsMode};
+use serde::{Serialize, Serializer};
 use snafu::{ResultExt, Snafu};
+
+#[derive(Serialize)]
+pub struct LogoState {
+    time: DateTime<Utc>,
+    #[serde(serialize_with = "as_base64")]
+    logo: Vec<u8>,
+}
+
+fn as_base64<T, S>(key: &T, serializer: S) -> Result<S::Ok, S::Error>
+where
+    T: AsRef<[u8]>,
+    S: Serializer,
+{
+    serializer.serialize_str(&base64::encode(key.as_ref()))
+}
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -60,4 +78,22 @@ pub fn save_logo(logo_png: &[u8]) -> Result<(), Error> {
     trans.commit().context(PgError)?;
 
     Ok(())
+}
+
+pub fn get_history() -> Result<Vec<LogoState>, Error> {
+    let conn = get_conn()?;
+    let res = conn
+        .query(
+            "SELECT created_at, image_png FROM timeline ORDER BY created_at",
+            &[],
+        )
+        .context(PgError)?;
+
+    Ok(res
+        .into_iter()
+        .map(|row| LogoState {
+            time: row.get(0),
+            logo: row.get(1),
+        })
+        .collect())
 }

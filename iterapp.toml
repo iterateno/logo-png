@@ -1,3 +1,4 @@
+# Avoid having to lock the database, just have one writer
 replicas=1
 
 [env.common]

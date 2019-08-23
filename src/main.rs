@@ -35,6 +35,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
     // GET /
     let index = path::end().and(warp::fs::file("src/index.html"));
+    // GET /history
+    let history = path!("history").and(warp::fs::file("src/history.html"));
     // GET /health
     let health = path!("health").map(|| "OK");
     // GET /live (websocket)
@@ -45,8 +47,20 @@ fn main() -> Result<(), Box<dyn Error>> {
             // This will call our function if the handshake succeeds.
             ws.on_upgrade(move |socket| live::listener_connected(socket))
         });
+    // GET /api/v1/history
+    let history_api = path!("api" / "v1" / "history").and_then(|| {
+        poll_fn(move || {
+            blocking(|| warp::reply::json(&db::get_history().expect("Could not get history")))
+                .map_err(|err| warp::reject::custom(err))
+        })
+    });
 
-    let routes = index.or(logo).or(health).or(live);
+    let routes = index
+        .or(logo)
+        .or(health)
+        .or(live)
+        .or(history)
+        .or(history_api);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3000));
 

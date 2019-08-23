@@ -36,28 +36,28 @@
         <script>
             let socket;
 
-            let onMessage = (event) => {
-                let image = document.getElementById('logo');
+            let onMessage = event => {
+                let image = document.getElementById("logo");
                 image.src = URL.createObjectURL(event.data);
             };
 
-            const onClose = (event) => {
-                console.log('Disconnected, will reconnect', event);
+            const onClose = event => {
+                console.log("Disconnected, will reconnect", event);
                 setTimeout(connect, 1000);
             };
 
             const connect = () => {
                 if (socket) {
                     socket.close();
-                    socket.removeEventListener('message', onMessage);
-                    socket.removeEventListener('close', onClose);
+                    socket.removeEventListener("message", onMessage);
+                    socket.removeEventListener("close", onClose);
                     socket = undefined;
                 }
 
                 socket = new WebSocket(`ws://${window.location.host}/live/`);
 
-                socket.addEventListener('message', onMessage);
-                socket.addEventListener('close', onClose);
+                socket.addEventListener("message", onMessage);
+                socket.addEventListener("close", onClose);
             };
 
             connect();

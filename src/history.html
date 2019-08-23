@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+
+        <title>Logo PNG</title>
+
+        <style>
+            html,
+            body {
+                height: 100%;
+            }
+
+            .wrapper {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                height: 100%;
+            }
+
+            img {
+                width: 608px;
+                height: 500px;
+                image-rendering: -webkit-optimize-contrast;
+                image-rendering: crisp-edges;
+                -ms-interpolation-mode: nearest-neighbor;
+                image-rendering: pixelated;
+                object-fit: contain;
+                display: block;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="wrapper">
+            <img id="logo" src="/logo.png" />
+            <div id="timer"></div>
+        </div>
+
+        <script>
+            const sleep = timeout => {
+                return new Promise(resolve => {
+                    setTimeout(resolve, timeout);
+                });
+            };
+
+            const runner = async () => {
+                let image = document.getElementById("logo");
+                let timer = document.getElementById("timer");
+
+                let res = await fetch("/api/v1/history");
+                let data = await res.json();
+                console.log(data);
+
+                for (state of data) {
+                    let url = `data:image/png;base64,${state.logo}`;
+                    image.src = url;
+                    timer.innerText = state.time;
+                    await sleep(500);
+                }
+            };
+
+            runner().catch(err => console.error(err));
+        </script>
+    </body>
+</html>
