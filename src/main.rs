@@ -1,8 +1,9 @@
+use std::error::Error;
 use std::thread;
 use std::time::Duration;
 
+use dotenv::dotenv;
 use futures::future::poll_fn;
-
 use tokio_threadpool::blocking;
 use warp::{
     self,
@@ -10,10 +11,15 @@ use warp::{
     path, Filter,
 };
 
+mod db;
 mod live;
 mod logo;
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
+
+    db::init_db()?;
+
     let logo_options = warp::query::<logo::LogoOptions>();
 
     thread::spawn(|| loop {
@@ -23,13 +29,15 @@ fn main() {
         thread::sleep(Duration::from_secs(1));
     });
 
-    // GET /hello/warp => 200 OK with body "Hello, warp!"
+    // GET /logo.png
     let logo = path!("logo.png").and(logo_options).and_then(|options| {
         poll_fn(move || blocking(|| logo(options)).map_err(|err| warp::reject::custom(err)))
     });
+    // GET /
     let index = path::end().and(warp::fs::file("src/index.html"));
+    // GET /health
     let health = path!("health").map(|| "OK");
-
+    // GET /live (websocket)
     let live = warp::path("live")
         // The `ws2()` filter will prepare Websocket handshake...
         .and(warp::ws2())
@@ -41,6 +49,8 @@ fn main() {
     let routes = index.or(logo).or(health).or(live);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3000));
+
+    Ok(())
 }
 
 fn logo(options: logo::LogoOptions) -> Result<Response<Vec<u8>>, http::Error> {

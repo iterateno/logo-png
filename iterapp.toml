@@ -1,1 +1,5 @@
+[env.common]
+DATABASE_URL= { secret = "db-secret", key = "database-url" }
+RUST_LOG= "logo-png=info"
 
+[postgres]

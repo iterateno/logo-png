@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use parking_lot::RwLock;
 use serde::Deserialize;
 
-use crate::live;
+use crate::{db, live};
 
 lazy_static! {
     // Last logo fetched from the api
@@ -45,6 +45,9 @@ pub fn update_logo() -> Result<(), Box<dyn Error>> {
         let logo_png = get_logo_png(LogoOptions::default()).expect("Could not get logo data");
 
         live::send_update(&logo_png);
+        if let Err(err) = db::save_logo(&logo_png) {
+            eprintln!("Error saving logo to db: {}", err);
+        }
     }
 
     Ok(())
