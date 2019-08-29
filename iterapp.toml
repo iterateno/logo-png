@@ -1,6 +1,9 @@
 # Avoid having to lock the database, just have one writer
 replicas=1
 
+[build]
+build_in_kubernetes = true
+
 [env.common]
 DATABASE_URL= { secret = "db-secret", key = "database-url" }
 RUST_LOG= "logo-png=info"
