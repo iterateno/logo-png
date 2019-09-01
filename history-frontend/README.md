@@ -11,4 +11,6 @@ npm install --global elm elm-live
 elm-live src/Main.elm --start-page=history.html -- --output=history.js
 ```
 
-http://localhost:8000/
+http://localhost:3000/history
+
+(or http://localhost:8000, but then the api call does not work. TODO: Fix the api call so it uses localhost:3000 in development)

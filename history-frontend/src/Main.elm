@@ -56,7 +56,7 @@ type alias History =
 
 getHistory : Cmd Msg
 getHistory =
-    Http.get { url = "http://localhost:3000/api/v1/history", expect = Http.expectJson GotHistory historyDecoder }
+    Http.get { url = "/api/v1/history", expect = Http.expectJson GotHistory historyDecoder }
 
 
 historyDecoder : Decoder History
