@@ -9,7 +9,7 @@ It also has a websocket which sends the png bytes every time the logo changes. I
 ## Setup db for local development
 
 ```
-createuser -S -R -d logopng
-psql -c "ALTER USER logopng ENCRYPTED PASSWORD 'logopng'"
-createdb -O logopng logopng
+createuser -S -R -d logo-png
+psql -c "ALTER USER \"logo-png\" ENCRYPTED PASSWORD 'logo-png'"
+createdb -O logo-png logo-png
 ```

@@ -3,7 +3,7 @@ use std::env;
 use base64;
 use chrono::{DateTime, Utc};
 use postgres::{Connection, TlsMode};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use snafu::{ResultExt, Snafu};
 
 #[derive(Serialize)]
@@ -80,14 +80,20 @@ pub fn save_logo(logo_png: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn get_history() -> Result<Vec<LogoState>, Error> {
+#[derive(Debug, Deserialize, Copy, Clone, Default)]
+pub struct GetHistoryOptions {
+    limit: Option<u32>,
+}
+
+pub fn get_history(options: GetHistoryOptions) -> Result<Vec<LogoState>, Error> {
+    let mut query_str = "SELECT created_at, image_png FROM timeline ORDER BY created_at".to_owned();
+    if let Some(limit) = options.limit {
+        // NOTE: This is safe because we know that limit is a number
+        query_str.push_str(&format!(" LIMIT {}", limit));
+    }
+
     let conn = get_conn()?;
-    let res = conn
-        .query(
-            "SELECT created_at, image_png FROM timeline ORDER BY created_at",
-            &[],
-        )
-        .context(PgError)?;
+    let res = conn.query(&query_str, &[]).context(PgError)?;
 
     Ok(res
         .into_iter()

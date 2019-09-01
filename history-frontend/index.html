@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <title></title>
+        <script src="elm.js"></script>
+
+        <style>
+            .pixelated img {
+                image-rendering: -webkit-optimize-contrast;
+                image-rendering: crisp-edges;
+                -ms-interpolation-mode: nearest-neighbor;
+                image-rendering: pixelated;
+            }
+        </style>
+    </head>
+
+    <body>
+        <script>
+            var app = Elm.Main.init();
+        </script>
+    </body>
+</html>

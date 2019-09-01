@@ -21,6 +21,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     db::init_db()?;
 
     let logo_options = warp::query::<logo::LogoOptions>();
+    let get_history_options = warp::query::<db::GetHistoryOptions>();
 
     thread::spawn(|| loop {
         if let Err(err) = logo::update_logo() {
@@ -28,6 +29,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         thread::sleep(Duration::from_secs(1));
     });
+
+    let cors = warp::cors()
+        .allow_origin("http://localhost:8000")
+        .allow_methods(vec!["GET"]);
 
     // GET /logo.png
     let logo = path!("logo.png").and(logo_options).and_then(|options| {
@@ -48,19 +53,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             ws.on_upgrade(move |socket| live::listener_connected(socket))
         });
     // GET /api/v1/history
-    let history_api = path!("api" / "v1" / "history").and_then(|| {
-        poll_fn(move || {
-            blocking(|| warp::reply::json(&db::get_history().expect("Could not get history")))
-                .map_err(|err| warp::reject::custom(err))
-        })
-    });
+    let history_api = path!("api" / "v1" / "history")
+        .and(get_history_options)
+        .and_then(|options| {
+            poll_fn(move || {
+                blocking(|| warp::reply::json(&db::get_history(options).expect("Could not get history")))
+                    .map_err(|err| warp::reject::custom(err))
+            })
+        });
 
     let routes = index
         .or(logo)
         .or(health)
         .or(live)
         .or(history)
-        .or(history_api);
+        .or(history_api)
+        .with(cors);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3000));
 
