@@ -41,7 +41,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     // GET /
     let index = path::end().and(warp::fs::file("src/index.html"));
     // GET /history
-    let history = path!("history").and(warp::fs::file("src/history.html"));
+    let history = path!("history").and(warp::fs::file("history-frontend/history.html"));
+    // GET /history/elm.js
+    let history_elm = path!("history.js").and(warp::fs::file("history-frontend/history.js"));
     // GET /health
     let health = path!("health").map(|| "OK");
     // GET /live (websocket)
@@ -57,8 +59,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .and(get_history_options)
         .and_then(|options| {
             poll_fn(move || {
-                blocking(|| warp::reply::json(&db::get_history(options).expect("Could not get history")))
-                    .map_err(|err| warp::reject::custom(err))
+                blocking(|| {
+                    warp::reply::json(&db::get_history(options).expect("Could not get history"))
+                })
+                .map_err(|err| warp::reject::custom(err))
             })
         });
 
@@ -66,8 +70,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .or(logo)
         .or(health)
         .or(live)
-        .or(history)
         .or(history_api)
+        .or(history)
+        .or(history_elm)
         .with(cors);
 
     warp::serve(routes).run(([0, 0, 0, 0], 3000));

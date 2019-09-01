@@ -8,7 +8,7 @@ Use elm live
 # Install
 npm install --global elm elm-live
 # Use
-elm-live src/Main.elm -d public -- --output=elm.js
+elm-live src/Main.elm --start-page=history.html -- --output=history.js
 ```
 
 http://localhost:8000/
