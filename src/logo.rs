@@ -141,9 +141,21 @@ fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
                         let x = extra_x + (x * pixel_size);
                         let y = extra_y + (y * pixel_size);
 
-                        let r = u8::from_str_radix(&pixel[1..3], 16)?;
-                        let g = u8::from_str_radix(&pixel[3..5], 16)?;
-                        let b = u8::from_str_radix(&pixel[5..7], 16)?;
+                        let (r, g, b) = if pixel.len() == 7 {
+                            (
+                                u8::from_str_radix(&pixel[1..3], 16)?,
+                                u8::from_str_radix(&pixel[3..5], 16)?,
+                                u8::from_str_radix(&pixel[5..7], 16)?,
+                            )
+                        } else if pixel.len() == 6 {
+                            (
+                                u8::from_str_radix(&pixel[0..2], 16)?,
+                                u8::from_str_radix(&pixel[2..4], 16)?,
+                                u8::from_str_radix(&pixel[4..6], 16)?,
+                            )
+                        } else {
+                            (155, 155, 155)
+                        };
 
                         let image_idx = (x + y * width) * 4;
 
