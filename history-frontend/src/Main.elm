@@ -11,6 +11,7 @@ import Html exposing (Html)
 import Html.Attributes exposing (class, style)
 import Http
 import Json.Decode exposing (Decoder)
+import Time
 
 
 main =
@@ -41,6 +42,7 @@ type alias Model =
     { currentTime : String
     , history : RemoteData History
     , currentIndex : Int
+    , playing : Bool
     }
 
 
@@ -56,7 +58,7 @@ type alias History =
 
 getHistory : Cmd Msg
 getHistory =
-    Http.get { url = "/api/v1/history", expect = Http.expectJson GotHistory historyDecoder }
+    Http.get { url = "https://logo-png.app.iterate.no/api/v1/history", expect = Http.expectJson GotHistory historyDecoder }
 
 
 historyDecoder : Decoder History
@@ -76,6 +78,7 @@ init _ =
     ( { currentTime = ""
       , currentIndex = 0
       , history = Loading
+      , playing = False
       }
     , getHistory
     )
@@ -89,6 +92,8 @@ type Msg
     = SetCurrentTime String
     | GotHistory (Result Http.Error History)
     | SetSlider Float
+    | TogglePlaying
+    | GoToNextState Time.Posix
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -108,6 +113,23 @@ update msg model =
         SetSlider newValue ->
             ( { model | currentIndex = round newValue }, Cmd.none )
 
+        TogglePlaying ->
+            ( { model | playing = not model.playing }, Cmd.none )
+
+        GoToNextState _ ->
+            let
+                historyLength =
+                    model.history |> remoteDataToMaybe |> Maybe.map Array.length |> Maybe.withDefault 0
+
+                newIndex =
+                    if model.currentIndex >= historyLength - 1 then
+                        0
+
+                    else
+                        model.currentIndex + 1
+            in
+            ( { model | currentIndex = newIndex }, Cmd.none )
+
 
 
 -- SUBSCRIPTIONS
@@ -115,7 +137,11 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    if model.playing then
+        Time.every 20 GoToNextState
+
+    else
+        Sub.none
 
 
 
@@ -171,7 +197,7 @@ controls : Model -> Element Msg
 controls model =
     row
         [ width fill ]
-        [ timeSlider model ]
+        [ runButton model, timeSlider model ]
 
 
 timeSlider : Model -> Element Msg
@@ -196,4 +222,18 @@ timeSlider model =
         , value = model.currentIndex |> toFloat
         , step = Just 1
         , thumb = Element.Input.defaultThumb
+        }
+
+
+runButton : Model -> Element Msg
+runButton model =
+    Element.Input.button [ Border.color (rgb255 128 128 128), Border.rounded 2 ]
+        { onPress = Just TogglePlaying
+        , label =
+            text <|
+                if model.playing then
+                    "pause"
+
+                else
+                    "play"
         }
