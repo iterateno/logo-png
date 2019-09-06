@@ -104,7 +104,7 @@ init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
     let
         params =
-            Url.Parser.parse routeParser url |> Maybe.withDefault (QueryParams Nothing Nothing)
+            Url.Parser.parse routeParser { url | path = "" } |> Maybe.withDefault (QueryParams Nothing Nothing)
     in
     ( { currentTime = ""
       , currentIndex = 0
