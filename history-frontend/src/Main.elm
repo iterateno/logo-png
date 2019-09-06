@@ -2,7 +2,9 @@ module Main exposing (Model, Msg(..), update, view)
 
 import Array exposing (Array)
 import Browser exposing (Document)
-import Element exposing (Element, alignRight, centerX, centerY, column, el, fill, height, htmlAttribute, image, padding, px, rgb255, row, shrink, spacing, text, width)
+import Browser.Navigation as Nav
+import Dict
+import Element exposing (Element, alignRight, centerX, centerY, column, el, fill, height, htmlAttribute, image, none, padding, px, rgb255, row, shrink, spacing, text, width)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Font as Font
@@ -14,10 +16,17 @@ import Json.Decode exposing (Decoder)
 import Svg
 import Svg.Attributes
 import Time
+import Url
+import Url.Parser
+import Url.Parser.Query
 
 
 main =
-    Browser.document { init = init, update = update, view = documentView, subscriptions = subscriptions }
+    Browser.application { init = init, update = update, view = documentView, subscriptions = subscriptions, onUrlRequest = LinkClicked, onUrlChange = UrlChanged }
+
+
+plainLogo =
+    "iVBORw0KGgoAAAANSUhEUgAAAJgAAAAgCAYAAADuW7E5AAABd0lEQVR4nO3YMUpDQRSFYWMjCtq4FlE7g2BlI4Kluga1EqzEUtcg9ulsRTsRO/eRSiFYxTsLeOfIu1ySwP9D5kHgzmSSr8pgvDOcLonWTn5i7W714nMQDypq+/1b/j4fu+tz/f0DbM4DGMBKAxjASgMYwEoDGMBKAxjASgMYwEpbeGDxkk0etuQFXQ7g7zi3v+v6ayPWuu6HL/J+e8dPqftNro5i7Z8DeHP4mPp8Lnl4C2A6gOnk4S2A6QCmk4e3uoG1t+04wACm6wb2vwAGMBnAdADTycNbANMBTCcPbwFMBzDdzP9odcBWNvX+bt4Bc0BcDtDb6FTu7+YdMAfI5YDdPp/L/d08wAAmzweYmQeYzgEBmJkHmM4BAZiZB5jOAQGYmQeYzgEBmJkHmM4BAZiZB5jOAZk5sGzLZ7EkcgAvX/en8eisGlg2Byzbwd0o1v45gAADWKz9AxjAZAAzASwXwEwAywUwE8ByAcwEsFwAMwEsVzWwP4mnR7+X5wIPAAAAAElFTkSuQmCC"
 
 
 
@@ -45,6 +54,7 @@ type alias Model =
     , history : RemoteData History
     , currentIndex : Int
     , playing : Bool
+    , showControls : Bool
     }
 
 
@@ -75,12 +85,32 @@ logoStateDecoder =
         (Json.Decode.field "logo" Json.Decode.string)
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
+type alias QueryParams =
+    { play : Maybe Bool
+    , showControls : Maybe Bool
+    }
+
+
+boolMap =
+    Dict.fromList [ ( "true", True ), ( "false", False ) ]
+
+
+routeParser : Url.Parser.Parser (QueryParams -> a) a
+routeParser =
+    Url.Parser.Query.map2 QueryParams (Url.Parser.Query.enum "play" boolMap) (Url.Parser.Query.enum "showControls" boolMap) |> Url.Parser.query
+
+
+init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
+init _ url key =
+    let
+        params =
+            Url.Parser.parse routeParser url |> Maybe.withDefault (QueryParams Nothing Nothing)
+    in
     ( { currentTime = ""
       , currentIndex = 0
       , history = Loading
-      , playing = False
+      , playing = params.play |> Maybe.withDefault False
+      , showControls = params.showControls |> Maybe.withDefault True
       }
     , getHistory
     )
@@ -97,11 +127,19 @@ type Msg
     | TogglePlaying
     | GoToNextState Time.Posix
     | FetchNewData Time.Posix
+    | LinkClicked Browser.UrlRequest
+    | UrlChanged Url.Url
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        LinkClicked _ ->
+            ( model, Cmd.none )
+
+        UrlChanged _ ->
+            ( model, Cmd.none )
+
         SetCurrentTime newCurrentTime ->
             ( { model | currentTime = newCurrentTime }, Cmd.none )
 
@@ -173,25 +211,34 @@ documentView model =
 
 view : Model -> Html Msg
 view model =
-    Element.layout [] (logoWithControls model)
+    Element.layout [ Font.color (rgb255 255 255 255), Background.color (rgb255 40 44 52) ] (logoWithControls model)
 
 
 logoWithControls : Model -> Element Msg
 logoWithControls model =
     column [ width shrink, centerY, centerX, spacing 30 ]
-        [ logoState model, controls model ]
+        [ logoState model
+        , if model.showControls then
+            controls model
 
-
-emptyPng : String
-emptyPng =
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkqAcAAIUAgUW0RjgAAAAASUVORK5CYII"
+          else
+            none
+        ]
 
 
 logoState : Model -> Element Msg
 logoState model =
     case model.history of
         Loading ->
-            text "Loading..."
+            if model.showControls then
+                text "Loading..."
+
+            else
+                image
+                    [ htmlAttribute (class "pixelated")
+                    , width (px 912)
+                    ]
+                    { src = "data:image/png;base64," ++ plainLogo, description = "logo" }
 
         Failure ->
             text "Error!"
@@ -199,7 +246,7 @@ logoState model =
         Success history ->
             let
                 imageData =
-                    Array.get model.currentIndex history |> Maybe.map .logo |> Maybe.withDefault emptyPng
+                    Array.get model.currentIndex history |> Maybe.map .logo |> Maybe.withDefault plainLogo
 
                 src =
                     "data:image/png;base64," ++ imageData
