@@ -96,6 +96,7 @@ type Msg
     | SetSlider Float
     | TogglePlaying
     | GoToNextState Time.Posix
+    | FetchNewData Time.Posix
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -110,7 +111,14 @@ update msg model =
                     ( { model | history = Success history }, Cmd.none )
 
                 Err _ ->
-                    ( { model | history = Failure }, Cmd.none )
+                    case model.history |> remoteDataToMaybe of
+                        Just _ ->
+                            -- We have old data, don't show error
+                            ( model, Cmd.none )
+
+                        Nothing ->
+                            -- We don't have old data, show error
+                            ( { model | history = Failure }, Cmd.none )
 
         SetSlider newValue ->
             ( { model | currentIndex = round newValue }, Cmd.none )
@@ -132,6 +140,9 @@ update msg model =
             in
             ( { model | currentIndex = newIndex }, Cmd.none )
 
+        FetchNewData _ ->
+            ( model, getHistory )
+
 
 
 -- SUBSCRIPTIONS
@@ -139,11 +150,16 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    if model.playing then
-        Time.every 20 GoToNextState
+    let
+        playingTick =
+            if model.playing then
+                Time.every 20 GoToNextState
 
-    else
-        Sub.none
+            else
+                Sub.none
+    in
+    -- 120000 ms = 2 minutes
+    Sub.batch [ playingTick, Time.every 120000 FetchNewData ]
 
 
 
