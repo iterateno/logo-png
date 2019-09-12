@@ -15,6 +15,7 @@ lazy_static! {
 #[derive(Debug, Deserialize, Copy, Clone, Default)]
 pub struct LogoOptions {
     size: Option<u32>,
+    character: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
@@ -69,6 +70,32 @@ pub fn get_logo_png(options: LogoOptions) -> Result<Vec<u8>, Box<dyn Error>> {
 }
 
 fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
+    let pixel_size = options.size.unwrap_or(1) as usize;
+    let width = 152 * pixel_size as usize;
+    let height = 32 * pixel_size as usize;
+
+    let mut image = vec![0; width * height * 4];
+
+    let live_logo = LOGO_CACHE.read();
+
+    for (char_index, chr) in live_logo.logo.iter().enumerate() {
+        write_character(&chr, char_index, pixel_size, width, &mut image)?;
+    }
+
+    Ok(Logo {
+        width,
+        height,
+        data: image,
+    })
+}
+
+fn write_character(
+    chr: &Vec<Vec<String>>,
+    char_index: usize,
+    pixel_size: usize,
+    width: usize,
+    image: &mut Vec<u8>,
+) -> Result<(), Box<dyn Error>> {
     let coords = vec![
         vec![[0, 0], [0, 16], [0, 24], [0, 32]],
         vec![
@@ -120,58 +147,44 @@ fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
         ],
     ];
 
-    let pixel_size = options.size.unwrap_or(1) as usize;
-    let width = 152 * pixel_size as usize;
-    let height = 32 * pixel_size as usize;
+    for (panel_index, panel) in chr.iter().enumerate() {
+        for (pixel_index, pixel) in panel.iter().enumerate() {
+            let panel_x = pixel_index % 8;
+            let panel_y = pixel_index / 8;
+            let x = coords[char_index][panel_index][0] + panel_x;
+            let y = coords[char_index][panel_index][1] + panel_y;
 
-    let mut image = vec![0; width * height * 4];
+            for extra_x in 0..pixel_size {
+                for extra_y in 0..pixel_size {
+                    let x = extra_x + (x * pixel_size);
+                    let y = extra_y + (y * pixel_size);
 
-    let live_logo = LOGO_CACHE.read();
+                    let (r, g, b) = if pixel.len() == 7 {
+                        (
+                            u8::from_str_radix(&pixel[1..3], 16)?,
+                            u8::from_str_radix(&pixel[3..5], 16)?,
+                            u8::from_str_radix(&pixel[5..7], 16)?,
+                        )
+                    } else if pixel.len() == 6 {
+                        (
+                            u8::from_str_radix(&pixel[0..2], 16)?,
+                            u8::from_str_radix(&pixel[2..4], 16)?,
+                            u8::from_str_radix(&pixel[4..6], 16)?,
+                        )
+                    } else {
+                        (155, 155, 155)
+                    };
 
-    for (char_index, chr) in live_logo.logo.iter().enumerate() {
-        for (panel_index, panel) in chr.iter().enumerate() {
-            for (pixel_index, pixel) in panel.iter().enumerate() {
-                let panel_x = pixel_index % 8;
-                let panel_y = pixel_index / 8;
-                let x = coords[char_index][panel_index][0] + panel_x;
-                let y = coords[char_index][panel_index][1] + panel_y;
+                    let image_idx = (x + y * width) * 4;
 
-                for extra_x in 0..pixel_size {
-                    for extra_y in 0..pixel_size {
-                        let x = extra_x + (x * pixel_size);
-                        let y = extra_y + (y * pixel_size);
-
-                        let (r, g, b) = if pixel.len() == 7 {
-                            (
-                                u8::from_str_radix(&pixel[1..3], 16)?,
-                                u8::from_str_radix(&pixel[3..5], 16)?,
-                                u8::from_str_radix(&pixel[5..7], 16)?,
-                            )
-                        } else if pixel.len() == 6 {
-                            (
-                                u8::from_str_radix(&pixel[0..2], 16)?,
-                                u8::from_str_radix(&pixel[2..4], 16)?,
-                                u8::from_str_radix(&pixel[4..6], 16)?,
-                            )
-                        } else {
-                            (155, 155, 155)
-                        };
-
-                        let image_idx = (x + y * width) * 4;
-
-                        image[image_idx] = r;
-                        image[image_idx + 1] = g;
-                        image[image_idx + 2] = b;
-                        image[image_idx + 3] = 255;
-                    }
+                    image[image_idx] = r;
+                    image[image_idx + 1] = g;
+                    image[image_idx + 2] = b;
+                    image[image_idx + 3] = 255;
                 }
             }
         }
     }
 
-    Ok(Logo {
-        width,
-        height,
-        data: image,
-    })
+    Ok(())
 }
