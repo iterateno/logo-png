@@ -16,6 +16,8 @@ lazy_static! {
 pub struct LogoOptions {
     size: Option<u32>,
     character: Option<usize>,
+    #[serde(default)]
+    crop: bool,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
@@ -81,12 +83,12 @@ fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
             let mut image = vec![0; width * height * 4];
 
             for (char_index, chr) in live_logo.logo.iter().enumerate() {
-                let letter_x = if char_index == 0 {
+                let x = if char_index == 0 {
                     0
                 } else {
                     (char_index * 3 - 2) * 8
                 };
-                write_character(&chr, char_index, pixel_size, width, &mut image, letter_x)?;
+                write_character(&chr, char_index, pixel_size, width, &mut image, x as i32, 0)?;
             }
             Ok(Logo {
                 width,
@@ -95,7 +97,17 @@ fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
             })
         }
         Some(character) => {
-            let height = 32 * pixel_size as usize;
+            let y: i32 = if options.crop {
+                if character == 0 || character == 1 || character == 5 {
+                    0
+                } else {
+                    -8
+                }
+            } else {
+                0
+            };
+
+            let height = (y + 32) as usize * pixel_size;
             let width = if character == 0 {
                 8 * pixel_size as usize
             } else {
@@ -109,7 +121,7 @@ fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
                 .get(character)
                 .ok_or_else(|| format!("{} is not a valid character", character))?;
 
-            write_character(&chr, character, pixel_size, width, &mut image, 0)?;
+            write_character(&chr, character, pixel_size, width, &mut image, 0, y)?;
 
             Ok(Logo {
                 width,
@@ -126,7 +138,8 @@ fn write_character(
     pixel_size: usize,
     width: usize,
     image: &mut Vec<u8>,
-    letter_x: usize,
+    letter_x: i32,
+    letter_y: i32,
 ) -> Result<(), Box<dyn Error>> {
     let coords = vec![
         vec![[0, 0], [0, 16], [0, 24], [0, 32]],
@@ -159,8 +172,8 @@ fn write_character(
         for (pixel_index, pixel) in panel.iter().enumerate() {
             let panel_x = pixel_index % 8;
             let panel_y = pixel_index / 8;
-            let x = coords[char_index][panel_index][0] + panel_x + letter_x;
-            let y = coords[char_index][panel_index][1] + panel_y;
+            let x = ((coords[char_index][panel_index][0] + panel_x) as i32 + letter_x) as usize;
+            let y = ((coords[char_index][panel_index][1] + panel_y) as i32 + letter_y) as usize;
 
             for extra_x in 0..pixel_size {
                 for extra_y in 0..pixel_size {
