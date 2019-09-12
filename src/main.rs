@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // GET /logo.png
     let logo = path!("logo.png").and(logo_options).and_then(|options| {
-        poll_fn(move || blocking(|| logo(options)).map_err(|err| warp::reject::custom(err)))
+        poll_fn(move || blocking(|| logo_route(options)).map_err(|err| warp::reject::custom(err)))
     });
     // GET /
     let index = path::end().and(warp::fs::file("src/index.html"));
@@ -80,7 +80,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn logo(options: logo::LogoOptions) -> Result<Response<Vec<u8>>, http::Error> {
-    let logo_png = logo::get_logo_png(options).expect("Could not get logo data");
+fn logo_route(options: logo::LogoOptions) -> Result<Response<Vec<u8>>, http::Error> {
+    let logo_png = match logo::get_logo_png(options) {
+        Ok(logo) => logo,
+        Err(err) => {
+            eprintln!("Error generating png: {}", err);
+            include_bytes!("error.png").to_vec()
+        }
+    };
     Response::builder().body(logo_png)
 }

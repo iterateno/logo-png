@@ -15,7 +15,7 @@ lazy_static! {
 #[derive(Debug, Deserialize, Copy, Clone, Default)]
 pub struct LogoOptions {
     size: Option<u32>,
-    character: Option<u32>,
+    character: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq)]
@@ -43,7 +43,7 @@ pub fn update_logo() -> Result<(), Box<dyn Error>> {
         // Avoid deadlock
         drop(logo_cache);
 
-        let logo_png = get_logo_png(LogoOptions::default()).expect("Could not get logo data");
+        let logo_png = get_logo_png(LogoOptions::default())?;
 
         live::send_update(&logo_png);
         if let Err(err) = db::save_logo(&logo_png) {
@@ -71,22 +71,53 @@ pub fn get_logo_png(options: LogoOptions) -> Result<Vec<u8>, Box<dyn Error>> {
 
 fn get_logo_data(options: LogoOptions) -> Result<Logo, Box<dyn Error>> {
     let pixel_size = options.size.unwrap_or(1) as usize;
-    let width = 152 * pixel_size as usize;
-    let height = 32 * pixel_size as usize;
-
-    let mut image = vec![0; width * height * 4];
-
     let live_logo = LOGO_CACHE.read();
 
-    for (char_index, chr) in live_logo.logo.iter().enumerate() {
-        write_character(&chr, char_index, pixel_size, width, &mut image)?;
-    }
+    match options.character {
+        None => {
+            let height = 32 * pixel_size as usize;
+            let width = 152 * pixel_size as usize;
 
-    Ok(Logo {
-        width,
-        height,
-        data: image,
-    })
+            let mut image = vec![0; width * height * 4];
+
+            for (char_index, chr) in live_logo.logo.iter().enumerate() {
+                let letter_x = if char_index == 0 {
+                    0
+                } else {
+                    (char_index * 3 - 2) * 8
+                };
+                write_character(&chr, char_index, pixel_size, width, &mut image, letter_x)?;
+            }
+            Ok(Logo {
+                width,
+                height,
+                data: image,
+            })
+        }
+        Some(character) => {
+            let height = 32 * pixel_size as usize;
+            let width = if character == 0 {
+                8 * pixel_size as usize
+            } else {
+                8 * 3 * pixel_size as usize
+            };
+
+            let mut image = vec![0; width * height * 4];
+
+            let chr = live_logo
+                .logo
+                .get(character)
+                .ok_or_else(|| format!("{} is not a valid character", character))?;
+
+            write_character(&chr, character, pixel_size, width, &mut image, 0)?;
+
+            Ok(Logo {
+                width,
+                height,
+                data: image,
+            })
+        }
+    }
 }
 
 fn write_character(
@@ -95,63 +126,40 @@ fn write_character(
     pixel_size: usize,
     width: usize,
     image: &mut Vec<u8>,
+    letter_x: usize,
 ) -> Result<(), Box<dyn Error>> {
     let coords = vec![
         vec![[0, 0], [0, 16], [0, 24], [0, 32]],
+        vec![[0, 0], [0, 8], [8, 8], [0, 16], [0, 24], [8, 24], [16, 24]],
         vec![
-            [8, 0],
+            [0, 8],
             [8, 8],
             [16, 8],
-            [8, 16],
+            [0, 16],
+            [16, 16],
+            [0, 24],
             [8, 24],
             [16, 24],
-            [24, 24],
         ],
+        vec![[0, 8], [8, 8], [16, 8], [0, 16], [0, 24]],
         vec![
-            [32, 8],
-            [40, 8],
-            [48, 8],
-            [32, 16],
-            [48, 16],
-            [32, 24],
-            [40, 24],
-            [48, 24],
+            [8, 8],
+            [16, 8],
+            [0, 16],
+            [16, 16],
+            [0, 24],
+            [8, 24],
+            [16, 24],
         ],
-        vec![[56, 8], [64, 8], [72, 8], [56, 16], [56, 24]],
-        vec![
-            [88, 8],
-            [96, 8],
-            [80, 16],
-            [96, 16],
-            [80, 24],
-            [88, 24],
-            [96, 24],
-        ],
-        vec![
-            [104, 0],
-            [104, 8],
-            [112, 8],
-            [104, 16],
-            [104, 24],
-            [112, 24],
-            [120, 24],
-        ],
-        vec![
-            [128, 8],
-            [136, 8],
-            [144, 8],
-            [128, 16],
-            [144, 16],
-            [128, 24],
-            [136, 24],
-        ],
+        vec![[0, 0], [0, 8], [8, 8], [0, 16], [0, 24], [8, 24], [16, 24]],
+        vec![[0, 8], [8, 8], [16, 8], [0, 16], [16, 16], [0, 24], [8, 24]],
     ];
 
     for (panel_index, panel) in chr.iter().enumerate() {
         for (pixel_index, pixel) in panel.iter().enumerate() {
             let panel_x = pixel_index % 8;
             let panel_y = pixel_index / 8;
-            let x = coords[char_index][panel_index][0] + panel_x;
+            let x = coords[char_index][panel_index][0] + panel_x + letter_x;
             let y = coords[char_index][panel_index][1] + panel_y;
 
             for extra_x in 0..pixel_size {
