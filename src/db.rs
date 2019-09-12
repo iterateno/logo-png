@@ -2,9 +2,15 @@ use std::env;
 
 use base64;
 use chrono::{DateTime, Utc};
+use flate2::{write::GzEncoder, Compression};
 use postgres::{Connection, TlsMode};
 use serde::{Deserialize, Serialize, Serializer};
+use serde_json;
 use snafu::{ResultExt, Snafu};
+use warp::{
+    http::{self, Response},
+    reply,
+};
 
 #[derive(Serialize)]
 pub struct LogoState {
@@ -24,9 +30,14 @@ where
 #[derive(Debug, Snafu)]
 pub enum Error {
     #[snafu(display("Could not get environment variable {}", env))]
-    EnvVar { env: String, source: env::VarError },
+    EnvVar {
+        env: String,
+        source: env::VarError,
+    },
     #[snafu(display("PostgresError {}", source))]
-    PgError { source: postgres::Error },
+    PgError {
+        source: postgres::Error,
+    },
     #[snafu(display("Error inserting {} into {}: {}", value, table, source))]
     PgInsert {
         table: String,
@@ -36,6 +47,15 @@ pub enum Error {
     PgQuery {
         query: String,
         source: postgres::Error,
+    },
+    JsonError {
+        source: serde_json::Error,
+    },
+    HttpError {
+        source: http::Error,
+    },
+    EncodeError {
+        source: std::io::Error,
     },
 }
 
@@ -85,7 +105,7 @@ pub struct GetHistoryOptions {
     limit: Option<u32>,
 }
 
-pub fn get_history(options: GetHistoryOptions) -> Result<Vec<LogoState>, Error> {
+pub fn get_history(options: GetHistoryOptions) -> Result<reply::Response, Error> {
     let mut query_str = "SELECT created_at, image_png FROM timeline ORDER BY created_at".to_owned();
     if let Some(limit) = options.limit {
         // NOTE: This is safe because we know that limit is a number
@@ -95,11 +115,25 @@ pub fn get_history(options: GetHistoryOptions) -> Result<Vec<LogoState>, Error> 
     let conn = get_conn()?;
     let res = conn.query(&query_str, &[]).context(PgError)?;
 
-    Ok(res
+    let data = res
         .into_iter()
         .map(|row| LogoState {
             time: row.get(0),
             logo: row.get(1),
         })
-        .collect())
+        .collect::<Vec<_>>();
+
+    // TODO: Check if the browser accept gzip
+    // let result = serde_json::to_vec(&data).context(JsonError)?;
+
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    serde_json::to_writer(&mut encoder, &data).context(JsonError)?;
+
+    let result = encoder.finish().context(EncodeError)?;
+
+    Ok(Response::builder()
+        .header("Content-Type", "application/json")
+        .header("Content-Encoding", "gzip")
+        .body(result.into())
+        .context(HttpError)?)
 }

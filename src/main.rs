@@ -8,7 +8,7 @@ use tokio_threadpool::blocking;
 use warp::{
     self,
     http::{self, Response},
-    path, Filter,
+    path, reply, Filter,
 };
 
 mod db;
@@ -59,10 +59,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .and(get_history_options)
         .and_then(|options| {
             poll_fn(move || {
-                blocking(|| {
-                    warp::reply::json(&db::get_history(options).expect("Could not get history"))
-                })
-                .map_err(|err| warp::reject::custom(err))
+                blocking(|| db::get_history(options).expect("Could not get history"))
+                    .map_err(|err| warp::reject::custom(err))
             })
         });
 
@@ -72,15 +70,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         .or(live)
         .or(history_api)
         .or(history)
-        .or(history_elm)
-        .with(cors);
+        .or(history_elm);
 
-    warp::serve(routes).run(([0, 0, 0, 0], 3000));
+    let main = routes.with(cors);
+
+    warp::serve(main).run(([0, 0, 0, 0], 3000));
 
     Ok(())
 }
 
-fn logo_route(options: logo::LogoOptions) -> Result<Response<Vec<u8>>, http::Error> {
+fn logo_route(options: logo::LogoOptions) -> Result<reply::Response, http::Error> {
     let logo_png = match logo::get_logo_png(options) {
         Ok(logo) => logo,
         Err(err) => {
@@ -88,5 +87,11 @@ fn logo_route(options: logo::LogoOptions) -> Result<Response<Vec<u8>>, http::Err
             include_bytes!("error.png").to_vec()
         }
     };
-    Response::builder().body(logo_png)
+    Ok(Response::builder().body(logo_png.into())?)
 }
+
+// This function receives a `Rejection` and tries to return a custom
+// value, othewise simply passes the rejection along.
+// fn customize_error(err: Rejection) -> Result<String, http::Error> {
+//     Ok(err.to_string())
+// }
