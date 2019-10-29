@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         thread::sleep(Duration::from_secs(1));
     });
 
+    // Note: Warp also applies cors-filter on websockets
     let cors = warp::cors()
         .allow_origin("http://localhost:8000")
         .allow_methods(vec!["GET"]);
@@ -68,11 +69,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .or(logo)
         .or(health)
         .or(live)
-        .or(history_api)
+        .or(history_api.with(cors).boxed())
         .or(history)
         .or(history_elm);
 
-    let main = routes.with(cors);
+    let main = routes;
 
     warp::serve(main).run(([0, 0, 0, 0], 3000));
 
