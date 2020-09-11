@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::error::Error;
 use std::thread;
 use std::time::Duration;
@@ -64,11 +66,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .map_err(|err| warp::reject::custom(err))
             })
         });
+    let history_api_by_date =
+        path!("api" / "v1" / "history" / String).and_then(|entry_date: String| {
+            poll_fn(move || {
+                blocking(|| {
+                    db::get_history_from_date(entry_date.clone())
+                        .expect("Could not get history at index")
+                })
+                .map_err(|err| warp::reject::custom(err))
+            })
+        });
+    let history_api_index = path!("api" / "v1" / "history" / "index").and_then(|| {
+        poll_fn(move || {
+            blocking(|| db::get_history_index().expect("Could not get history index"))
+                .map_err(|err| warp::reject::custom(err))
+        })
+    });
 
     let routes = index
         .or(logo)
         .or(health)
         .or(live)
+        .or(history_api_index)
+        .or(history_api_by_date)
         .or(history_api.with(cors).boxed())
         .or(history)
         .or(history_elm);

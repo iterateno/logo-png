@@ -40,7 +40,7 @@ pub fn update_logo() -> Result<(), Box<dyn Error>> {
         drop(old_logo);
 
         let mut logo_cache = LOGO_CACHE.write();
-        mem::replace(&mut *logo_cache, live_logo);
+        drop(mem::replace(&mut *logo_cache, live_logo));
 
         // Avoid deadlock
         drop(logo_cache);

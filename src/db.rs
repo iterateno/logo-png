@@ -57,6 +57,9 @@ pub enum Error {
     EncodeError {
         source: std::io::Error,
     },
+    ParseDateError {
+        source: chrono::format::ParseError,
+    },
 }
 
 fn get_conn() -> Result<Connection, Error> {
@@ -134,6 +137,50 @@ pub fn get_history(options: GetHistoryOptions) -> Result<reply::Response, Error>
     Ok(Response::builder()
         .header("Content-Type", "application/json")
         .header("Content-Encoding", "gzip")
+        .body(result.into())
+        .context(HttpError)?)
+}
+
+pub fn get_history_from_date(index: String) -> Result<reply::Response, Error> {
+    let date: DateTime<Utc> = index.parse().context(ParseDateError)?;
+
+    let conn = get_conn()?;
+    let res = conn
+        .query(
+            "SELECT image_png FROM timeline WHERE created_at=$1",
+            &[&date],
+        )
+        .context(PgError)?;
+
+    let data: Vec<u8> = res.get(0).get(0);
+
+    Ok(Response::builder()
+        .header("Content-Type", "image/png")
+        .body(data.into())
+        .context(HttpError)?)
+}
+
+#[derive(Serialize)]
+pub struct HistoryIndex {
+    time: DateTime<Utc>,
+}
+
+pub fn get_history_index() -> Result<reply::Response, Error> {
+    let conn = get_conn()?;
+
+    let res = conn
+        .query("SELECT created_at FROM timeline ORDER BY created_at", &[])
+        .context(PgError)?;
+
+    let data = res
+        .into_iter()
+        .map(|row| HistoryIndex { time: row.get(0) })
+        .collect::<Vec<_>>();
+
+    let result = serde_json::to_string(&data).context(JsonError)?;
+
+    Ok(Response::builder()
+        .header("Content-Type", "application/json")
         .body(result.into())
         .context(HttpError)?)
 }
