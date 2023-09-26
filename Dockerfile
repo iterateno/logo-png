@@ -31,7 +31,7 @@ RUN cargo build --release
 # FRONTEND #
 ############
 
-FROM node:10 AS build_history_frontend
+FROM node:18 AS build_history_frontend
 ENV NODE_ENV production
 
 RUN yarn global add elm
